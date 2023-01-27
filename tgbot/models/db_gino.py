@@ -41,6 +41,7 @@ class User(TimeBaseModel):
     id = Column(BigInteger, primary_key=True)
     username = Column(String(100), default=None)
     is_active = Column(db.Boolean, default=False)
+    is_password = Column(db.Boolean, default=False)
 
     query: sql.Select
 

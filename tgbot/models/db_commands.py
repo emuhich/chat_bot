@@ -1,8 +1,8 @@
 from tgbot.models.db_gino import User, Sessions
 
 
-async def create_user(user_id: int, username: str, is_active: bool):
-    user = User(id=user_id, username=username, is_active=is_active)
+async def create_user(user_id: int, username: str, is_active: bool, is_password: bool):
+    user = User(id=user_id, username=username, is_active=is_active, is_password=is_password)
     await user.create()
 
 

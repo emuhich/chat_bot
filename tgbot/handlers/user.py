@@ -7,34 +7,63 @@ from aiogram.utils.markdown import hbold
 from tgbot.keyboards.inline import rules_kb, menu_kb, back_to_menu_kb, approve_disable_bot
 from tgbot.misc.platform_api import send_upd, send_to_api
 from tgbot.misc.questions import questions_and_answers
-from tgbot.misc.states import dialog
+from tgbot.misc.states import Dialog
 from tgbot.models.db_commands import get_user, create_user, delete_user, get_session, create_session
 
 user_router = Router()
 
 
 @user_router.message(commands=["start"], state=None)
-async def user_start(message: Message):
+async def user_start(message: Message, state: FSMContext):
     user = await get_user(message.chat.id)
-    if not user or not user.is_active:
+    if not user or not user.is_password:
+        await message.answer('Введите пароль 👇')
+        await state.set_state(Dialog.password)
+    elif not user.is_active:
         return await message.answer(hbold(
             f'Привет! Мы рады видеть вас в чате-боте «Друзья SPLAT»! Нажимая на кнопку'
             f'«Принять», вы соглашаетесь с Правилами Программы и '
             f'даете согласие на обработку ваших персональных данных, согласно Политике конфиденциальности.'
         ), reply_markup=await rules_kb())
-    await message.answer("Выберите нужный пункт меню 👇", reply_markup=await menu_kb())
+    else:
+        await message.answer("Выберите нужный пункт меню 👇", reply_markup=await menu_kb())
 
 
 @user_router.message(commands=["menu"], state=None)
-async def user_start(message: Message):
+async def user_menu(message: Message, state: FSMContext):
     user = await get_user(message.chat.id)
-    if not user or not user.is_active:
+    if not user or not user.is_password:
+        await message.answer('Введите пароль 👇')
+        await state.set_state(Dialog.password)
+    elif not user.is_active:
         return await message.answer(hbold(
             f'Привет! Мы рады видеть вас в чате-боте «Друзья SPLAT»! Нажимая на кнопку'
             f'«Принять», вы соглашаетесь с Правилами Программы и '
             f'даете согласие на обработку ваших персональных данных, согласно Политике конфиденциальности.'
         ), reply_markup=await rules_kb())
-    await message.answer("Выберите нужный пункт меню 👇", reply_markup=await menu_kb())
+    else:
+        await message.answer("Выберите нужный пункт меню 👇", reply_markup=await menu_kb())
+
+
+@user_router.message(state=Dialog.password)
+async def check_password(message: Message, state: FSMContext):
+    user = await get_user(message.chat.id)
+    if message.text.lower() == "spfriends":
+        await state.clear()
+        if not user:
+            await create_user(message.chat.id, username=message.chat.username, is_active=False, is_password=True)
+        else:
+            await user.update(is_password=True).apply()
+        if not user or not user.is_active:
+            return await message.answer(hbold(
+                f'Привет! Мы рады видеть вас в чате-боте «Друзья SPLAT»! Нажимая на кнопку'
+                f'«Принять», вы соглашаетесь с Правилами Программы и '
+                f'даете согласие на обработку ваших персональных данных, согласно Политике конфиденциальности.'
+            ), reply_markup=await rules_kb())
+        else:
+            await message.answer("Выберите нужный пункт меню 👇", reply_markup=await menu_kb())
+    else:
+        await message.answer('❌ Неверный пароль, введите новый пароль ниже 👇')
 
 
 @user_router.callback_query(text="rules")
@@ -46,16 +75,23 @@ async def rules(call: CallbackQuery):
 @user_router.message(commands=["stop_dialog"])
 async def stop_dialog(message: Message, state: FSMContext, event_update: Update):
     await state.clear()
-    await send_upd(event_update.json(), close_session=True)
+    await send_upd(event_update, close_session=True)
     await message.answer(
         "Ваше обращение принято, сессия завершена. Можете пользоваться ботом дальше (Возврат в меню)",
         reply_markup=await back_to_menu_kb())
 
 
 @user_router.callback_query(text="accept_rules")
-async def accept_rules(call: CallbackQuery):
-    await create_user(call.message.chat.id, username=call.message.chat.username, is_active=True)
+async def accept_rules(call: CallbackQuery, event_update: Update):
+    user = await get_user(call.message.chat.id)
+    await user.update(is_active=True).apply()
     await send_to_api(call.message.chat.id, title="Подтвердил правила", name="start")
+    session = await get_session(user_id=call.message.chat.id)
+    if session:
+        await send_upd(event_update)
+    else:
+        await send_upd(event_update, True)
+        await create_session(user_id=call.message.chat.id)
     await call.message.edit_text("\n".join(
         [
             f'{hbold("Ура, спасибо, что вы с нами!")}',
@@ -104,11 +140,11 @@ async def another_question(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text("Не нашли ответ на свой вопрос? \n\n"
                                  "Напишите его нам в окошке сообщений. Мы обязательно вернемся к вам с ответом!)",
                                  reply_markup=await back_to_menu_kb())
-    await state.set_state(dialog.session)
+    await state.set_state(Dialog.session)
     await state.update_data(count=0)
 
 
-@user_router.message(state=dialog.session)
+@user_router.message(state=Dialog.session)
 async def dialog_with_manager(message: Message, event_update: Update, state: FSMContext):
     session = await get_session(user_id=message.chat.id)
     await send_to_api(message.chat.id)
@@ -119,9 +155,9 @@ async def dialog_with_manager(message: Message, event_update: Update, state: FSM
             return message.answer(
                 f"Для продолжения работы нажмите /stop_dialog")
     if session:
-        await send_upd(event_update.json())
+        await send_upd(event_update)
     else:
-        await send_upd(event_update.json(), True)
+        await send_upd(event_update, True)
         await create_session(user_id=message.chat.id)
     if count == 0:
         await message.answer("Спасибо за ваш вопрос! Мы отправили его менеджеру, "

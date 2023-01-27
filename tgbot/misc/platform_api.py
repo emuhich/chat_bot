@@ -1,7 +1,7 @@
 import json
 
 import requests
-from loguru import logger
+from aiogram import types
 
 from tgbot.config import load_config
 
@@ -21,8 +21,12 @@ async def send_to_api(id, title="Количество обращений", name=
 
 
 async def send_upd(upd, new=False, close_session=None):
-    upd = json.loads(upd)
-    upd["message"]["from"] = upd["message"].pop("from_user")
+    upd = json.loads(upd.json())
+    if upd['callback_query']:
+        upd['message'] = upd.pop('callback_query')['message']
+        upd['message']['from'] = upd['message'].pop('from_user')
+    else:
+        upd["message"]["from"] = upd["message"].pop("from_user")
     upd = json.dumps(upd, default=dict)
     try:
         if close_session:
@@ -52,4 +56,3 @@ async def send_upd(upd, new=False, close_session=None):
                           auth=('test', 'test'))
     except Exception:
         pass
-
